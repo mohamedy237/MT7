@@ -137,11 +137,11 @@ function loginView(msg=''){
     // MT7: تسجيل مباشر ببريد Auth (إن وُجد @) أو عبر Edge Function name-login إن كانت مرفوعة
     if (id.includes('@')) {
       const {error} = await SB.auth.signInWithPassword({email:id, password:pw});
-      if (error) return $('#er').textContent = 'خطأ تسجيل الدخول بالبريد: ' + (error.message || 'خطأ غير معروف');
+      if (error) return $('#er').textContent = error.message||'البريد أو كلمة المرور غير صحيحة';
       return boot();
     }
-    let j={}, loginStatus=0; try{ const r=await fetch('https://cfozngtflwqyonncitfu.supabase.co/functions/v1/name-login',{method:'POST',headers:{'Content-Type':'application/json','apikey':'sb_publishable_yi8Lk34nsLiqnEZCzSL2mQ_I8Xm-Uj6'},body:JSON.stringify({name:id,password:pw})}); loginStatus=r.status; j=await r.json(); }catch(x){ j={error:'تعذر الاتصال بخدمة تسجيل الدخول: '+(x?.message||String(x))}; }
-    if (!j.ok) return $('#er').textContent = 'خطأ تسجيل الدخول بالاسم'+(loginStatus?' (HTTP '+loginStatus+')':'')+': '+(j.error||j.message||'لم تُرجع الخدمة تفاصيل الخطأ');
+    let j={}; try{ const r=await fetch('https://cfozngtflwqyonncitfu.supabase.co/functions/v1/name-login',{method:'POST',headers:{'Content-Type':'application/json','apikey':'sb_publishable_yi8Lk34nsLiqnEZCzSL2mQ_I8Xm-Uj6'},body:JSON.stringify({name:id,password:pw})}); j=await r.json(); }catch(x){ j={error:'تعذر الاتصال — جرّب الدخول بالبريد الإلكتروني'}; }
+    if (!j.ok) return $('#er').textContent = j.error||'الاسم أو كلمة المرور غير صحيحة';
     const {error} = await SB.auth.setSession({access_token:j.access_token,refresh_token:j.refresh_token});
     if (error) $('#er').textContent='فشل تسجيل الدخول'; else boot();
   };
@@ -151,14 +151,60 @@ function goHome(){ $('#md')?.remove(); S.me.role==='doctor'?home():staffView(S.t
 async function logout(){ await SB.auth.signOut(); S.me=null; loginView(); }
 
 async function boot(){
-  const {data:{user}} = await SB.auth.getUser();
+  // Verify the current Auth session before loading the doctor's profile.
+  const { data: authData, error: authError } = await SB.auth.getUser();
+  const user = authData?.user;
+  if (authError || !user) {
+    console.error('Auth session check failed:', authError?.message || 'No authenticated user');
+    await SB.auth.signOut();
+    return loginView('تعذر التحقق من جلسة الدخول. سجّل الدخول مرة أخرى.');
+  }
+
   const [d,a,st,p] = await Promise.all([
     SB.from('doctors').select('*').eq('user_id',user.id).maybeSingle(),
     SB.from('doctor_group_assignments').select('group_code,training_type_code'),
     SB.from('assessment_settings').select('key,value'),
-    SB.from('training_periods').select('*').eq('is_open',true).order('id').limit(1)]);
-  if (!d.data || !d.data.active){ await SB.auth.signOut(); return loginView('الحساب غير مفعّل. تواصل مع مدير النظام.'); }
-  S.me=d.data; S.assign=a.data||[]; S.period=(p.data||[])[0];
+    SB.from('training_periods').select('*').eq('is_open',true).order('id').limit(1)
+  ]);
+
+  // Do not mislabel RLS/network/database errors as an inactive account.
+  if (d.error) {
+    console.error('Doctor profile query failed:', {
+      code: d.error.code,
+      message: d.error.message,
+      details: d.error.details,
+      hint: d.error.hint,
+      authUserId: user.id
+    });
+    return loginView('تعذر قراءة بيانات الحساب من قاعدة البيانات. رمز الخطأ: '+(d.error.code || 'غير متاح')+'. راجع سجل Console لمعرفة التفاصيل.');
+  }
+
+  if (!d.data) {
+    console.error('No doctor row matched the authenticated user:', {
+      authUserId: user.id,
+      email: user.email
+    });
+    await SB.auth.signOut();
+    return loginView('تم تسجيل الدخول، لكن لم يتم العثور على سجل مرتبط بهذا المستخدم في جدول doctors.');
+  }
+
+  if (d.data.active !== true) {
+    console.warn('Doctor account is not active:', {
+      authUserId: user.id,
+      doctorUserId: d.data.user_id,
+      active: d.data.active
+    });
+    await SB.auth.signOut();
+    return loginView('الحساب موجود لكنه غير مفعّل. راجع قيمة active في جدول doctors.');
+  }
+
+  if (a.error) console.error('Doctor assignments query failed:', a.error);
+  if (st.error) console.error('Assessment settings query failed:', st.error);
+  if (p.error) console.error('Training periods query failed:', p.error);
+
+  S.me=d.data;
+  S.assign=a.data||[];
+  S.period=(p.data||[])[0];
   S.cfg=Object.fromEntries((st.data||[]).map(x=>[x.key,x.value]));
   if (S.me.role!=='doctor'){ return staffView('sum'); }
   home();
