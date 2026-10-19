@@ -137,11 +137,11 @@ function loginView(msg=''){
     // MT7: تسجيل مباشر ببريد Auth (إن وُجد @) أو عبر Edge Function name-login إن كانت مرفوعة
     if (id.includes('@')) {
       const {error} = await SB.auth.signInWithPassword({email:id, password:pw});
-      if (error) return $('#er').textContent = error.message||'البريد أو كلمة المرور غير صحيحة';
+      if (error) return $('#er').textContent = 'خطأ تسجيل الدخول بالبريد: ' + (error.message || 'خطأ غير معروف');
       return boot();
     }
-    let j={}; try{ const r=await fetch('https://cfozngtflwqyonncitfu.supabase.co/functions/v1/name-login',{method:'POST',headers:{'Content-Type':'application/json','apikey':'sb_publishable_yi8Lk34nsLiqnEZCzSL2mQ_I8Xm-Uj6'},body:JSON.stringify({name:id,password:pw})}); j=await r.json(); }catch(x){ j={error:'تعذر الاتصال — جرّب الدخول بالبريد الإلكتروني'}; }
-    if (!j.ok) return $('#er').textContent = j.error||'الاسم أو كلمة المرور غير صحيحة';
+    let j={}, loginStatus=0; try{ const r=await fetch('https://cfozngtflwqyonncitfu.supabase.co/functions/v1/name-login',{method:'POST',headers:{'Content-Type':'application/json','apikey':'sb_publishable_yi8Lk34nsLiqnEZCzSL2mQ_I8Xm-Uj6'},body:JSON.stringify({name:id,password:pw})}); loginStatus=r.status; j=await r.json(); }catch(x){ j={error:'تعذر الاتصال بخدمة تسجيل الدخول: '+(x?.message||String(x))}; }
+    if (!j.ok) return $('#er').textContent = 'خطأ تسجيل الدخول بالاسم'+(loginStatus?' (HTTP '+loginStatus+')':'')+': '+(j.error||j.message||'لم تُرجع الخدمة تفاصيل الخطأ');
     const {error} = await SB.auth.setSession({access_token:j.access_token,refresh_token:j.refresh_token});
     if (error) $('#er').textContent='فشل تسجيل الدخول'; else boot();
   };
