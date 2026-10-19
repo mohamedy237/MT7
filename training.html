@@ -151,60 +151,14 @@ function goHome(){ $('#md')?.remove(); S.me.role==='doctor'?home():staffView(S.t
 async function logout(){ await SB.auth.signOut(); S.me=null; loginView(); }
 
 async function boot(){
-  // Verify the current Auth session before loading the doctor's profile.
-  const { data: authData, error: authError } = await SB.auth.getUser();
-  const user = authData?.user;
-  if (authError || !user) {
-    console.error('Auth session check failed:', authError?.message || 'No authenticated user');
-    await SB.auth.signOut();
-    return loginView('تعذر التحقق من جلسة الدخول. سجّل الدخول مرة أخرى.');
-  }
-
+  const {data:{user}} = await SB.auth.getUser();
   const [d,a,st,p] = await Promise.all([
     SB.from('doctors').select('*').eq('user_id',user.id).maybeSingle(),
     SB.from('doctor_group_assignments').select('group_code,training_type_code'),
     SB.from('assessment_settings').select('key,value'),
-    SB.from('training_periods').select('*').eq('is_open',true).order('id').limit(1)
-  ]);
-
-  // Do not mislabel RLS/network/database errors as an inactive account.
-  if (d.error) {
-    console.error('Doctor profile query failed:', {
-      code: d.error.code,
-      message: d.error.message,
-      details: d.error.details,
-      hint: d.error.hint,
-      authUserId: user.id
-    });
-    return loginView('تعذر قراءة بيانات الحساب من قاعدة البيانات. رمز الخطأ: '+(d.error.code || 'غير متاح')+'. راجع سجل Console لمعرفة التفاصيل.');
-  }
-
-  if (!d.data) {
-    console.error('No doctor row matched the authenticated user:', {
-      authUserId: user.id,
-      email: user.email
-    });
-    await SB.auth.signOut();
-    return loginView('تم تسجيل الدخول، لكن لم يتم العثور على سجل مرتبط بهذا المستخدم في جدول doctors.');
-  }
-
-  if (d.data.active !== true) {
-    console.warn('Doctor account is not active:', {
-      authUserId: user.id,
-      doctorUserId: d.data.user_id,
-      active: d.data.active
-    });
-    await SB.auth.signOut();
-    return loginView('الحساب موجود لكنه غير مفعّل. راجع قيمة active في جدول doctors.');
-  }
-
-  if (a.error) console.error('Doctor assignments query failed:', a.error);
-  if (st.error) console.error('Assessment settings query failed:', st.error);
-  if (p.error) console.error('Training periods query failed:', p.error);
-
-  S.me=d.data;
-  S.assign=a.data||[];
-  S.period=(p.data||[])[0];
+    SB.from('training_periods').select('*').eq('is_open',true).order('id').limit(1)]);
+  if (!d.data || !d.data.active){ await SB.auth.signOut(); return loginView('الحساب غير مفعّل. تواصل مع مدير النظام.'); }
+  S.me=d.data; S.assign=a.data||[]; S.period=(p.data||[])[0];
   S.cfg=Object.fromEntries((st.data||[]).map(x=>[x.key,x.value]));
   if (S.me.role!=='doctor'){ return staffView('sum'); }
   home();
@@ -224,7 +178,7 @@ async function groupsView(t){
   S.t=t; const lab=t==='lab';
   const gs=S.assign.filter(x=>x.training_type_code===t).map(x=>x.group_code).sort(nat);
   app.innerHTML = shell('<p>جارٍ التحميل...</p>');
-  const [st,sm]=await Promise.all([SB.from('students').select('group_code'),
+  const [st,sm]=await Promise.all([SB.from('roster_students').select('group_code'),
     S.period ? (lab?SB.from('v_lab_summary').select('group_code,status').eq('period_id',S.period.id)
                    :SB.from('v_clinical_summary').select('group_code,status').eq('period_id',S.period.id).eq('training_type_code',t)) : {data:[]}]);
   const tot={},done={},abs={};
@@ -240,7 +194,7 @@ async function groupsView(t){
 async function groupView(g){ S.g={gc:g}; S.sn=1; S.showAll=false; await loadGroup(); drawGroup(); openFirst(); }
 async function loadGroup(){
   const {gc}=S.g, t=S.t, lab=t==='lab', p=S.period.id;
-  const st=await SB.from('students').select('student_code,serial_no,full_name,display_name').eq('group_code',gc).order('serial_no');
+  const st=await SB.from('roster_students').select('student_code,serial_no,full_name,display_name').eq('group_code',gc).order('serial_no');
   let q=SB.from(lab?'lab_sessions':'clinical_sessions').select('*').eq('group_code',gc).eq('period_id',p).order('session_no');
   if(!lab) q=q.eq('training_type_code',t);
   const ss=await q; S.g.stu=st.data||[]; S.g.sessions=ss.data||[]; S.g.all={};
@@ -404,8 +358,8 @@ async function staffView(tab){
       all('doctor_group_assignments','id,doctor_id,group_code,training_type_code',q=>q.order('id')),
       p?all('v_clinical_summary','*',q=>q.eq('period_id',p).order('student_code').order('training_type_code')):[],
       p?all('v_lab_summary','*',q=>q.eq('period_id',p).order('student_code')):[],
-      SB.from('students').select('*',{count:'exact',head:true}),
-      all('students','student_code,group_code,serial_no,full_name',q=>q.order('student_code')),
+      SB.from('roster_students').select('*',{count:'exact',head:true}),
+      all('roster_students','student_code,group_code,serial_no,full_name',q=>q.order('student_code')),
       p?all('v_grand_total','*',q=>q.eq('period_id',p).order('student_code')):[]]);
     S.st={grp:grp.sort((a,b)=>nat(a.code,b.code)),docs,asg,cl,lb,stu,gt,n:cnt.count||0};
   }catch(er){app.innerHTML=shell(`<div class="card">فشل التحميل: ${e(er.message)}</div>`);return;}
@@ -513,7 +467,7 @@ async function addStu(){
   if(list.some(x=>x.full_name.replace(/\s+/g,' ').trim()===name) && !confirm('يوجد طالب بنفس الاسم في هذه المجموعة. هل تريد الإضافة رغم ذلك؟')) return;
   const serial=(list.length?Math.max(...list.map(x=>x.serial_no)):0)+1;
   m.textContent='جارٍ الحفظ...'; m.className='st';
-  const r=await SB.from('students').insert({student_code:g+'-'+serial,group_code:g,serial_no:serial,full_name:name}).select().single();
+  const r=await SB.from('roster_students').insert({student_code:g+'-'+serial,group_code:g,serial_no:serial,full_name:name}).select().single();
   if(r.error) return bad('فشل: '+r.error.message);
   await staffView('stu'); const k=$('#smsg'); if(k){k.textContent='تمت إضافة '+name+' برقم '+serial; k.className='st good';}
 }
