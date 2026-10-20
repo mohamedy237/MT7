@@ -1,17 +1,27 @@
-const V = 'nq-shell-v4';
+const V = 'mt7-shell-v6';
+const CORE = [
+  './training.html',
+  './manifest.json',
+  './icon-192.png',
+  './icon-512.png'
+];
+const SUPABASE_JS = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js';
 
 self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(V)
-      .then(c => c.addAll([
-        './',
-        './training.html',
-        './manifest.json',
-        './icon-192.png',
-        './icon-512.png'
-      ]).catch(() => {}))
-      .then(() => self.skipWaiting())
-  );
+  e.waitUntil((async () => {
+    const c = await caches.open(V);
+    // Do not include './': this project has no index.html, so that URL can 404
+    // and make Cache.addAll fail atomically, leaving the app shell uncached.
+    await c.addAll(CORE);
+    // Supabase's client library is essential for the app to start offline.
+    // Cache it opportunistically; a CDN outage must not prevent SW installation.
+    try {
+      const req = new Request(SUPABASE_JS, { mode: 'no-cors' });
+      const res = await fetch(req);
+      if (res.ok || res.type === 'opaque') await c.put(req, res);
+    } catch (_) {}
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', e => {
@@ -43,7 +53,7 @@ self.addEventListener('fetch', e => {
   const r = e.request;
   const u = new URL(r.url);
 
-  // بيانات الدرجات والطلاب لا تُخزَّن أبدًا هنا
+  // Student and grade data are never cached by the Service Worker.
   if (r.method !== 'GET' || u.hostname.endsWith('supabase.co')) return;
 
   if (r.mode === 'navigate' || u.origin === location.origin) {
