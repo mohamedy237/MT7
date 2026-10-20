@@ -3,7 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0b2c4a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>تقييم التدريب العملي - تمريض</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cfozngtflwqyonncitfu.supabase.co">
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 :root{--ink:#10343f;--teal:#0e7c86;--teal2:#e3f2f3;--gold:#c8962b;--bg:#f3f6f7;--line:#d6e0e3;--red:#b3362f;--green:#1f7a4d;--r:10px}
@@ -175,7 +182,10 @@ function home(){
   const types=[...new Set(S.assign.map(x=>x.training_type_code))].sort((a,b)=>['antenatal','labor','postnatal','lab'].indexOf(a)-['antenatal','labor','postnatal','lab'].indexOf(b));
   const cards=types.map(t=>{const n=S.assign.filter(x=>x.training_type_code===t).length;
     return `<button class="card btn" onclick="groupsView('${t}')"><div class="big">${TN[t]}</div><div class="muted">${n} مجموعة</div></button>`}).join('');
-  app.innerHTML = shell(`<h2>اختر نوع الشيت</h2>`+(types.length?`<div class="grid">${cards}</div>`:'<div class="card">لم تُسند إليك مجموعات بعد. تواصل مع المنسق.</div>'),
+  const offlineTip = `<div class="card" style="margin-top:1em"><b>العمل بدون إنترنت</b>
+  <div class="muted" style="margin-top:.3em">ثبّت التطبيق من المتصفح (إضافة إلى الشاشة الرئيسية) عشان يفتح أسرع ويشتغل حتى لو النت ضعيف.
+  <br>لو النت قطع أثناء التقييم، هتظهر رسالة واضحة وتقدر تعيد الحفظ لما يرجع الاتصال.</div></div>`;
+  app.innerHTML = shell(`<h2>اختر نوع الشيت</h2>`+(types.length?`<div class="grid">${cards}</div>`:'<div class="card">لم تُسند إليك مجموعات بعد. تواصل مع المنسق.</div>')+offlineTip,
     S.period?e(S.period.name):'لا توجد فترة تدريبية مفتوحة');
 }
 
@@ -313,11 +323,20 @@ async function ensureSession(){
 }
 async function write(table, ex, row, key, store){
   msg('جارٍ الحفظ...');
-  let r = ex ? await SB.from(table).update(row).eq('id',ex.id).eq('version',ex.version).select()
-             : await SB.from(table).insert(row).select();
-  if (r.error){ msg('فشل الحفظ: '+tr(r.error.message)+' - البيانات المدخلة ما زالت أمامك','bad'); return false; }
-  if (!r.data.length){ msg('تم تعديل هذا السجل من مستخدم آخر. أغلق البطاقة وافتحها من جديد.','bad'); return false; }
-  store(r.data[0]); await loadSummary(); drawStu(); msg('تم الحفظ','good'); return true;
+  if (!navigator.onLine) {
+    msg('لا يوجد اتصال بالإنترنت. تحقق من الاتصال ثم أعد المحاولة. البيانات ما زالت أمامك.','bad');
+    return false;
+  }
+  try {
+    let r = ex ? await SB.from(table).update(row).eq('id',ex.id).eq('version',ex.version).select()
+               : await SB.from(table).insert(row).select();
+    if (r.error){ msg('فشل الحفظ: '+tr(r.error.message)+' - البيانات المدخلة ما زالت أمامك','bad'); return false; }
+    if (!r.data.length){ msg('تم تعديل هذا السجل من مستخدم آخر. أغلق البطاقة وافتحها من جديد.','bad'); return false; }
+    store(r.data[0]); await loadSummary(); drawStu(); msg('تم الحفظ','good'); return true;
+  } catch (err) {
+    msg('تعذر الاتصال بالخادم: '+(err.message||err)+' - البيانات ما زالت أمامك','bad');
+    return false;
+  }
 }
 async function saveC(){
   if(!M.st) return msg('اختر حاضر أو غائب','bad');
@@ -567,7 +586,33 @@ async function exportTemplate(){
 }
 
 /* ---------- start ---------- */
-(async()=>{ const {data:{session}}=await SB.auth.getSession(); session?boot():loginView(); })();
+
+/* PWA + offline helpers */
+function netBar(){
+  let b = document.getElementById('netbar');
+  if(!navigator.onLine){
+    if(!b){
+      b = document.createElement('div');
+      b.id = 'netbar';
+      b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#b3362f;color:#fff;text-align:center;padding:6px;font:600 13px Cairo,sans-serif';
+      b.textContent = 'أنت غير متصل بالإنترنت — لن تتمكن من حفظ التقييمات حتى يعود الاتصال';
+      document.body.appendChild(b);
+    }
+  } else if(b) b.remove();
+}
+window.addEventListener('online', () => { netBar(); });
+window.addEventListener('offline', netBar);
+
+if ('serviceWorker' in navigator && /^https?:/.test(location.protocol)) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}
+
+(async()=>{
+  const {data:{session}} = await SB.auth.getSession();
+  if (session) boot();
+  else loginView();
+  netBar();
+})();
 </script>
 </body>
 </html>
