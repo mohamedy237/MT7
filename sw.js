@@ -1,4 +1,4 @@
-const V = 'mt7-shell-v6';
+const V = 'mt7-shell-v7';
 const CORE = [
   './training.html',
   './manifest.json',
