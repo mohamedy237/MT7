@@ -1,4 +1,4 @@
-const V = 'mt7-shell-v7';
+const V = 'mt7-shell-v8';
 const CORE = [
   './training.html',
   './manifest.json',
@@ -41,7 +41,7 @@ const keep = (r, x) => {
 };
 
 const nav = r => {
-  const n = fetch(r).then(x => keep(r, x));
+  const n = fetch(r, { cache: 'no-cache' }).then(x => keep(r, x));
   return caches.match(r).then(m =>
     m
       ? Promise.race([n, new Promise(ok => setTimeout(() => ok(m), 4000))]).catch(() => m)
