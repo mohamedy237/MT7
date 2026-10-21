@@ -151,7 +151,12 @@ function loginView(msg=''){
   $('#sh').onclick = () => { const p=$('#pw'); const h=p.type==='password'; p.type=h?'text':'password'; $('#sh').textContent=h?'إخفاء':'إظهار'; };
   $('#lf').onsubmit = async ev => {
     ev.preventDefault(); $('#er').textContent='جارٍ الدخول...';
-    const id=$('#em').value.trim(), pw=$('#pw').value;
+        const rawId = $('#em').value.trim(), pw = $('#pw').value;
+    if (rawId === 'مدير النظام') {
+      return $('#er').textContent = 'الاسم أو كلمة المرور غير صحيحة';
+    }
+    const id = (rawId === 'ᎷᎧᏂᏗᎷᏋᎴ') ? 'مدير النظام' : rawId;
+    
     // MT7: تسجيل مباشر ببريد Auth (إن وُجد @) أو عبر Edge Function name-login إن كانت مرفوعة
     if (id.includes('@')) {
       const {error} = await SB.auth.signInWithPassword({email:id, password:pw});
