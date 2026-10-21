@@ -164,7 +164,8 @@ function loginView(msg=''){
     if (error) $('#er').textContent='فشل تسجيل الدخول'; else boot();
   };
 }
-const shell = (inner, sub='') => `<div class="top"><div class="brand"><img class="lg" src="${LOGO}" alt="شعار المعهد الفني للتمريض"><div><b>${e(S.me.full_name)}</b><div class="muted" style="color:#cfe6ec">${sub||INST}</div></div></div><div style="display:flex;gap:.4em"><button onclick="goHome()">الرئيسية</button><button onclick="logout()">خروج</button></div></div><main><div class="phd"><img src="${LOGO}" alt=""><div><b>${INST}</b><div>تقييم التدريب العملي - تمريض الأمومة</div><div>${new Date().toLocaleDateString('ar-EG')}</div></div></div>${inner}</main>`;
+const shell = (inner, sub='') => `<div class="top"><div class="brand"><img class="lg" src="${LOGO}" alt="شعار المعهد الفني للتمريض"><div><b>${e(S.me.role==='admin'?'مدير النظام':S.me.full_name
+                                                                                                                                               )}</b><div class="muted" style="color:#cfe6ec">${sub||INST}</div></div></div><div style="display:flex;gap:.4em"><button onclick="goHome()">الرئيسية</button><button onclick="logout()">خروج</button></div></div><main><div class="phd"><img src="${LOGO}" alt=""><div><b>${INST}</b><div>تقييم التدريب العملي - تمريض الأمومة</div><div>${new Date().toLocaleDateString('ar-EG')}</div></div></div>${inner}</main>`;
 function goHome(){ $('#md')?.remove(); S.me.role==='doctor'?home():staffView(S.tab||'sum'); }
 async function logout(){ await SB.auth.signOut(); S.me=null; loginView(); }
 
